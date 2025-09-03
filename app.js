@@ -20,7 +20,8 @@ app.use(
   cors({
     origin: [
       process.env.FRONTEND_URL || "http://localhost:3000",
-      "https://dt092cz3-5173.inc1.devtunnels.ms",
+      "http://localhost:5173",
+      "https://trip-now-phi.vercel.app/",
     ],
     credentials: true,
   })

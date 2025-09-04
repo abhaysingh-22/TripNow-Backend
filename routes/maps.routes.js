@@ -1,56 +1,44 @@
 import express from "express";
-import mapsController from "../controllers/maps.controller.js";
-const router = express.Router();
-import { authUser } from "../middlewares/auth.middleware.js";
+import { Router } from "express";
 import { query } from "express-validator";
-import mapsService from "../services/maps.service.js";
+import mapsController from "../controllers/maps.controller.js";
+import { authUser } from "../middlewares/auth.middleware.js";
 
+const router = Router();
+
+// ✅ CORRECT - Put validations in array, middleware in correct order
 router.get(
   "/geocode",
-  authUser, // here we are authenticating the user becuase if not then we have to pay to google for the api requests
-  // Validate the query parameter 'address'
-  query("address").isString().notEmpty(),
+  [query("address").isString().notEmpty().withMessage("Address is required")],
+  authUser,
   mapsController.geocode
 );
 
+// ✅ CORRECT - All validations in array, then middleware, then handler
 router.get(
   "/distance-time",
-  authUser, // here we are authenticating the user becuase if not then we have to pay to google for the api requests
-  query("origin").isString().notEmpty(),
-  query("destination").isString().notEmpty(),
+  [
+    query("origin").isString().notEmpty().withMessage("Origin is required"),
+    query("destination")
+      .isString()
+      .notEmpty()
+      .withMessage("Destination is required"),
+  ],
+  authUser,
   mapsController.getDistanceTime
 );
 
+// ✅ CORRECT - Proper structure
 router.get(
   "/suggestions",
+  [query("input").isString().notEmpty().withMessage("Input is required")],
   authUser,
-  query("input").isString().notEmpty(),
   mapsController.getSuggestions
 );
 
-// // Add this test route:
+// Remove or fix the commented section if it's causing issues
 // router.get("/test-geocoding", async (req, res) => {
-//   try {
-//     const { address } = req.query;
-//     const testAddress =
-//       address || "Pune International Airport, Maharashtra, India";
-
-//     console.log("🧪 Testing geocoding for:", testAddress);
-//     const result = await mapsService.getCoordinates(testAddress);
-
-//     res.json({
-//       success: true,
-//       address: testAddress,
-//       coordinates: result,
-//       message: "Geocoding successful",
-//     });
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       error: error.message,
-//       address: req.query.address,
-//     });
-//   }
+//   // ... complete this route properly if needed
 // });
 
 export default router;

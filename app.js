@@ -18,12 +18,42 @@ connectToDB().catch((err) => {
 
 app.use(
   cors({
-    origin: [process.env.FRONTEND_URL || "https://trip-now-phi.vercel.app"],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const allowedOrigins = [
+        "http://localhost:5173",
+        "https://trip-now-phi.vercel.app",
+      ];
+
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Check for devtunnels pattern
+      try {
+        const url = new URL(origin);
+        if (/\.devtunnels\.ms$/.test(url.hostname)) {
+          return callback(null, true);
+        }
+      } catch (e) {
+        // Invalid URL, reject
+      }
+
+      callback(new Error("Not allowed by CORS: " + origin));
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// Add preflight handling
+app.options(/.*/, cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // urlencoded is used to parse form data this is basically a middleware
@@ -38,6 +68,7 @@ app.use((req, res, next) => {
   next();
 });
 
+// Replace your current route mounting (lines 40-44) with this:
 app.use("/api/users", userRoutes);
 app.use("/api/captains", captainRoutes);
 app.use("/api/maps", mapsRoutes);

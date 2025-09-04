@@ -4,6 +4,7 @@ import { validationResult } from "express-validator";
 import { sendMessageToSocketId } from "../socket.js";
 import Captain from "../models/captain.model.js";
 import Ride from "../models/ride.model.js";
+import User from "../models/user.model.js";
 
 const createRide = async (req, res) => {
   const errors = validationResult(req);
@@ -145,30 +146,58 @@ const acceptRide = async (req, res) => {
   const captainId = req.captain._id;
 
   try {
-    const ride = await Ride.findByIdAndUpdate(
-      rideId,
-      { captainId: captainId, status: "accepted" },
-      { new: true }
-    ).populate("userId");
+    console.log(`🚗 Captain ${captainId} attempting to accept ride ${rideId}`);
+
+    // Check if ride exists and is still pending
+    const ride = await Ride.findById(rideId).populate("userId");
 
     if (!ride) {
       return res.status(404).json({ error: "Ride not found" });
     }
 
-    // Notify user that ride was accepted
-    if (ride.userId.socketId) {
-      sendMessageToSocketId(ride.userId.socketId, "ride-accepted", {
-        rideId: ride._id,
-        otp: ride.otp,
+    if (ride.status !== "pending") {
+      return res.status(400).json({
+        error: `Ride is no longer available. Current status: ${ride.status}`,
+      });
+    }
+
+    // Update ride with captain
+    const updatedRide = await Ride.findByIdAndUpdate(
+      rideId,
+      {
+        captainId: captainId,
+        status: "accepted",
+        acceptedAt: new Date(),
+      },
+      { new: true }
+    ).populate("userId");
+
+    if (!updatedRide) {
+      return res.status(404).json({ error: "Failed to update ride" });
+    }
+
+    // Update captain status
+    await Captain.findByIdAndUpdate(captainId, {
+      status: "busy",
+    });
+
+    // Get captain details for notification
+    const captain = await Captain.findById(captainId);
+
+    // Notify user via socket
+    if (updatedRide.userId && updatedRide.userId.socketId) {
+      sendMessageToSocketId(updatedRide.userId.socketId, "ride-accepted", {
+        rideId: updatedRide._id,
+        otp: updatedRide.otp,
         captain: {
           _id: captainId,
-          name: req.captain.fullName?.firstName || "Driver",
+          name: captain.fullName?.firstName || "Driver",
           photo:
-            req.captain.photo ||
-            "https://randomuser.me/api/portraits/lego/1.jpg",
-          vehicle: req.captain.vehicle,
+            captain.photo || "https://randomuser.me/api/portraits/lego/1.jpg",
+          vehicle: captain.vehicle,
+          rating: captain.rating || 4.8,
         },
-        message: "Driver found! Your ride has been accepted.",
+        estimatedArrival: "3 min",
       });
     }
 
@@ -176,15 +205,16 @@ const acceptRide = async (req, res) => {
       success: true,
       message: "Ride accepted successfully",
       ride: {
-        _id: ride._id,
-        pickupLocation: ride.pickupLocation,
-        dropoffLocation: ride.dropoffLocation,
-        fare: ride.fare,
-        status: ride.status,
-        otp: ride.otp,
+        _id: updatedRide._id,
+        pickupLocation: updatedRide.pickupLocation,
+        dropoffLocation: updatedRide.dropoffLocation,
+        fare: updatedRide.fare,
+        status: updatedRide.status,
+        otp: updatedRide.otp,
       },
     });
   } catch (error) {
+    console.error("❌ Accept ride error:", error);
     return res.status(500).json({ error: error.message });
   }
 };
@@ -425,11 +455,11 @@ function getUserName(user) {
   return user.name || user.email || "Unknown User";
 }
 
-export default {
+export {
   createRide,
-  getFare,
   confirmRide,
-  acceptRide,
+  getFare,
+  acceptRide, // Make sure this is here
   startRide,
   completeRide,
 };

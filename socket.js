@@ -8,17 +8,24 @@ let io = null;
 function initialiseSocket(server) {
   io = new Server(server, {
     cors: {
-      origin: process.env.FRONTEND_URL || "http://localhost:5173",
+      origin: [
+        process.env.FRONTEND_URL || "http://localhost:5173",
+        "https://trip-now-phi.vercel.app",
+      ],
       methods: ["GET", "POST"],
       credentials: true,
     },
+    transports: ["websocket", "polling"], // Ensure multiple transport options
+    pingTimeout: 60000,
+    pingInterval: 25000,
   });
 
   io.on("connection", (socket) => {
     console.log("New socket connection:", socket.id);
 
     socket.on("join", async (data) => {
-      const { userId, role } = data;
+      const { userId, userType, role } = data; // Accept both parameters
+      const actualRole = userType || role; // Use userType first, fallback to role
 
       try {
         if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -26,7 +33,7 @@ function initialiseSocket(server) {
           return;
         }
 
-        if (role === "user") {
+        if (actualRole === "user") {
           const user = await User.findByIdAndUpdate(
             userId,
             { socketId: socket.id },
@@ -39,11 +46,19 @@ function initialiseSocket(server) {
           }
 
           socket.join(`user_${userId}`);
-          socket.emit("joined", { role: "user", userId });
-        } else if (role === "captain") {
+          console.log(`✅ User ${userId} joined room user_${userId}`);
+          socket.emit("joined", {
+            userType: "user", // Changed from 'role' to 'userType'
+            userId,
+            success: true,
+          });
+        } else if (actualRole === "captain") {
           const captain = await Captain.findByIdAndUpdate(
             userId,
-            { socketId: socket.id },
+            {
+              socketId: socket.id,
+              status: "active", // Ensure captain is marked as active
+            },
             { new: true }
           );
 
@@ -53,7 +68,12 @@ function initialiseSocket(server) {
           }
 
           socket.join(`captain_${userId}`);
-          socket.emit("joined", { role: "captain", userId });
+          console.log(`✅ Captain ${userId} joined room captain_${userId}`);
+          socket.emit("joined", {
+            userType: "captain", // Changed from 'role' to 'userType'
+            userId,
+            success: true,
+          });
         } else {
           socket.emit("error", {
             message: "Invalid role. Must be 'user' or 'captain'",
@@ -111,16 +131,47 @@ function initialiseSocket(server) {
     });
 
     socket.on("disconnect", async () => {
+      console.log(`Socket disconnected: ${socket.id}`);
       try {
+        // Set captain as inactive when disconnecting
         await Promise.all([
           User.updateOne({ socketId: socket.id }, { $unset: { socketId: 1 } }),
           Captain.updateOne(
             { socketId: socket.id },
-            { $unset: { socketId: 1 } }
+            {
+              $unset: { socketId: 1 },
+              $set: { status: "inactive" },
+            }
           ),
         ]);
+        console.log(`Cleaned up socket ${socket.id}`);
       } catch (err) {
         console.error("Error clearing socketId:", err);
+      }
+    });
+
+    socket.on("captain-online", async (data) => {
+      const { userId } = data;
+      try {
+        await Captain.findByIdAndUpdate(userId, {
+          status: "active",
+          socketId: socket.id,
+        });
+        console.log(`Captain ${userId} is now online`);
+      } catch (err) {
+        console.error("Error setting captain online:", err);
+      }
+    });
+
+    socket.on("captain-offline", async (data) => {
+      const { userId } = data;
+      try {
+        await Captain.findByIdAndUpdate(userId, {
+          status: "inactive",
+        });
+        console.log(`Captain ${userId} is now offline`);
+      } catch (err) {
+        console.error("Error setting captain offline:", err);
       }
     });
   });
@@ -162,9 +213,23 @@ function getSocketStatus() {
   };
 }
 
+function debugSocketRooms() {
+  if (!io) return {};
+
+  const rooms = {};
+  io.sockets.adapter.rooms.forEach((sockets, room) => {
+    if (room.startsWith("user_") || room.startsWith("captain_")) {
+      rooms[room] = Array.from(sockets);
+    }
+  });
+
+  return rooms;
+}
+
 export {
   initialiseSocket,
   sendMessageToSocketId,
   sendRideUpdateToUser,
   getSocketStatus,
+  debugSocketRooms, // Add this export
 };

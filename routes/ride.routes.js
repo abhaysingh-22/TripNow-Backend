@@ -1,7 +1,7 @@
 import express from "express";
 import { Router } from "express";
 import { body, query } from "express-validator";
-import rideController from "../controllers/ride.controller.js";
+import * as rideController from "../controllers/ride.controller.js";
 import { authUser, authCaptain } from "../middlewares/auth.middleware.js";
 
 const router = Router();
@@ -74,8 +74,10 @@ router.post(
   "/accept",
   [
     body("rideId")
-      .isMongoId() // ✅ Change from .isString() to .isMongoId()
-      .withMessage("Valid ride ID is required"),
+      .notEmpty()
+      .withMessage("Ride ID is required")
+      .isLength({ min: 24, max: 24 })
+      .withMessage("Invalid ride ID format"),
   ],
   authCaptain,
   rideController.acceptRide
